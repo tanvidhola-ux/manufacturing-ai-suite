@@ -2652,6 +2652,66 @@ def check_resource_leak(initial_stats, final_stats, memory_leak_threshold_mb=50)
     return not leak_detected
 
 
+def setup_mqtt_alerts_docker(sample_app=constants.WIND_SAMPLE_APP):
+    """
+    Setup MQTT alerts for Docker deployment with app-specific support.
+
+    Args:
+        sample_app (str): Sample app type (constants.WIND_SAMPLE_APP, constants.MULTIMODAL_SAMPLE_APP).
+
+    Returns:
+        bool: True if setup successful, False otherwise
+    """
+    try:
+        logger.info(f"Setting up MQTT alerts for Docker deployment with app: {sample_app}")
+
+        # Save current directory
+        original_dir = os.getcwd()
+
+        # Navigate to the correct app directory based on sample app
+        if sample_app == constants.WIND_SAMPLE_APP:
+            target_dir = os.path.join(constants.EDGE_AI_SUITES_DIR,
+                                    "apps/wind-turbine-anomaly-detection/time-series-analytics-config")
+            file_path = os.path.join(target_dir, "tick_scripts/windturbine_anomaly_detector.tick")
+            setup_type = "mqtt"
+        elif sample_app == constants.MULTIMODAL_SAMPLE_APP:
+            # For multimodal, the config is in a different location
+            multimodal_dir = constants.EDGE_AI_SUITES_DIR.replace(constants.TARGET_SUBPATH, constants.MULTIMODAL_TARGET_SUBPATH)
+            target_dir = os.path.join(multimodal_dir, "configs/time-series-analytics-microservice")
+            file_path = os.path.join(target_dir, "tick_scripts/weld_defect_detector.tick")
+            setup_type = "mqtt_weld"
+        else:
+            logger.error(f"✗ Unsupported sample app: {sample_app}")
+            return False
+
+        logger.info(f"Target directory: {target_dir}")
+        logger.info(f"Tick script path: {file_path}")
+
+        # Check if tick script file exists
+        if not os.path.exists(file_path):
+            logger.error(f"✗ Tick script file not found: {file_path}")
+            return False
+
+        # Update the tick script with appropriate MQTT alert configuration
+        success = common_utils.update_alert_in_tick_script(file_path, setup_type)
+
+        if success:
+            logger.info(f"✓ {setup_type.upper()} alert configuration set successfully for {sample_app}")
+            return True
+        else:
+            logger.error(f"✗ Failed to set {setup_type.upper()} alert configuration for {sample_app}")
+            return False
+
+    except Exception as e:
+        logger.error(f"✗ Exception occurred while setting up MQTT alerts: {str(e)}")
+        return False
+    finally:
+        # Always return to original directory
+        try:
+            os.chdir(original_dir)
+        except Exception:
+            pass
+
 def invoke_make_up(measure_time=False):
     """
     Execute 'make up' command to deploy the full stack.
