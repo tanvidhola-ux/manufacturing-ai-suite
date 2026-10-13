@@ -60,6 +60,8 @@ def _publish_alerts(influxdb3_local, args, messages):
             import paho.mqtt.client as mqtt
 
             client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+            if args.get("mqtt_tls_ca"):
+                client.tls_set(ca_certs=args["mqtt_tls_ca"])
             client.connect(args["mqtt_host"], int(args.get("mqtt_port", "1883")), keepalive=10)
             client.loop_start()
             pending = [

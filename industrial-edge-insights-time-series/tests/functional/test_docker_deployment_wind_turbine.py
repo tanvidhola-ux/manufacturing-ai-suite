@@ -149,20 +149,9 @@ def test_multiple_runs_opcua(setup_wind_turbine_environment):
         logger.info(f"Containers found in cycle {i+1}: {len(containers) if containers else 0}")
         assert_condition(containers, "No containers found after OPCUA deployment")
 
-        # Step 1: Configure OPC UA alert in TICK script
-        logger.info(f"Cycle {i+1} Step 1: Configuring OPC UA alert in TICK script...")
-        tick_result = docker_utils.check_and_update_tick_script(setup="opcua")
-        assert_condition(tick_result is not None, f"Cycle {i+1}: Failed to configure OPC UA alert in TICK script")
-
-        # Step 2: Upload UDF deployment package
-        logger.info(f"Cycle {i+1} Step 2: Uploading UDF deployment package...")
-        upload_result = docker_utils.upload_udf_tar_package(constants.WIND_SAMPLE_APP)
-        assert_condition(upload_result == True, f"Cycle {i+1}: Failed to upload UDF deployment package")
-
-        # Step 3: Configure OPC UA alert in config.json
-        logger.info(f"Cycle {i+1} Step 3: Configuring OPC UA alert in config.json...")
+        logger.info(f"Cycle {i+1}: Configuring OPC UA alert in config.json...")
         config_result = docker_utils.update_config_file("opcua")
-        assert_condition(config_result == True, f"Cycle {i+1}: Failed to configure OPC UA alert in config.json")
+        assert_condition(config_result == True, f"Cycle {i+1}: Failed to configure OPC UA Core trigger")
 
         # Cleanup between iterations (except last one which is handled by fixture)
         if i < 2:
@@ -182,20 +171,10 @@ def test_switch_mqtt_to_opcua_ingestion(setup_wind_turbine_environment):
     logger.info(f"Switch MQTT to OPCUA result: {switch_result}")
     assert_condition(switch_result == True, "Assertion failed")
 
-    # Step 1: Configure OPC UA alert in TICK script
-    logger.info("Step 1: Configuring OPC UA alert in TICK script...")
-    tick_result = docker_utils.check_and_update_tick_script(setup="opcua")
-    assert_condition(tick_result is not None, "Failed to configure OPC UA alert in TICK script")
-
-    # Step 2: Upload UDF deployment package
-    logger.info("Step 2: Uploading UDF deployment package...")
-    upload_result = docker_utils.upload_udf_tar_package(constants.WIND_SAMPLE_APP)
-    assert_condition(upload_result == True, "Failed to upload UDF deployment package")
-
-    # Step 3: Configure OPC UA alert in config.json
-    logger.info("Step 3: Configuring OPC UA alert in config.json...")
+    # Select OPC UA alerting through Core trigger config.
+    logger.info("Configuring OPC UA alert in config.json...")
     config_result = docker_utils.update_config_file("opcua")
-    assert_condition(config_result == True, "Failed to configure OPC UA alert in config.json")
+    assert_condition(config_result == True, "Failed to configure OPC UA Core trigger")
     # Cleanup handled by fixture
     
 
@@ -361,10 +340,10 @@ def test_mqtt_alerts(setup_wind_turbine_environment):
     logger.info("TC_013: Testing MQTT alerts functionality")
     context = setup_wind_turbine_environment
 
-    # Ensure UDF is reset to MQTT mode for test determinism
-    logger.info("Pre-flight: ensuring loaded UDF is in MQTT mode")
-    if not docker_utils.reset_loaded_udf_to("mqtt"):
-        pytest.fail("reset_loaded_udf_to('mqtt') failed — see logs above")
+    # Ensure the Core plugin is in MQTT mode for test determinism.
+    logger.info("Pre-flight: ensuring Core plugin is in MQTT mode")
+    if not docker_utils.reset_loaded_plugin_to("mqtt"):
+        pytest.fail("reset_loaded_plugin_to('mqtt') failed — see logs above")
 
     # Phase 1: Deploy MQTT stack
     logger.info("[DEBUG] Phase 1/4: Deploying MQTT stack...")
@@ -457,9 +436,8 @@ def test_mqtt_alerts(setup_wind_turbine_environment):
 def test_opcua_alerts(setup_wind_turbine_environment, request):
     """TC_014: Testing OPCUA alerts functionality.
 
-    The underlying ``validate_opcua_alert_system`` helper performs 5 sequential
-    steps (TICK script update → UDF tar upload → config POST → OPC-UA server
-    restart → log pattern search).  When the helper returns False the only
+    The underlying ``validate_opcua_alert_system`` helper uploads the Core plugin,
+    posts the trigger config, and checks the alert log pattern. When it returns False the only
     signal is the assertion message, which makes triage hard.
 
     This test adds explicit pre-checks and on-failure log dumps so CI output
@@ -470,11 +448,11 @@ def test_opcua_alerts(setup_wind_turbine_environment, request):
     logger.info("TC_014: Testing OPCUA alerts functionality")
     context = setup_wind_turbine_environment
 
-    # Reset UDF to MQTT baseline on teardown so later tests don't inherit the OPC-UA TICK.
+    # Reset the Core plugin config to MQTT on teardown.
     def _reset_to_mqtt_baseline():
         try:
-            ok = docker_utils.reset_loaded_udf_to("mqtt")
-            logger.info(f"TC_014 teardown: reset_loaded_udf_to('mqtt') -> {ok}")
+            ok = docker_utils.reset_loaded_plugin_to("mqtt")
+            logger.info(f"TC_014 teardown: reset_loaded_plugin_to('mqtt') -> {ok}")
         except Exception as exc:
             logger.warning(f"TC_014 teardown reset failed: {exc}")
     request.addfinalizer(_reset_to_mqtt_baseline)
@@ -746,20 +724,9 @@ def test_opcua_multi_stream_scalability(setup_wind_turbine_environment):
             # Poll until all containers are up instead of sleeping blindly
             docker_utils.wait_until_containers_up(_WIND_OPCUA_CONTAINERS, timeout=constants.WIND_TURBINE_CONTAINER_READY_TIMEOUT)
 
-            # Step 1: Configure OPC UA alert in TICK script
-            logger.info(f"Step 1: Configuring OPC UA alert in TICK script for {num_streams} streams...")
-            tick_result = docker_utils.check_and_update_tick_script(setup="opcua")
-            assert_condition(tick_result is not None, f"Failed to configure OPC UA alert in TICK script for {num_streams} streams")
-
-            # Step 2: Upload UDF deployment package
-            logger.info(f"Step 2: Uploading UDF deployment package for {num_streams} streams...")
-            upload_result = docker_utils.upload_udf_tar_package(constants.WIND_SAMPLE_APP)
-            assert_condition(upload_result == True, f"Failed to upload UDF deployment package for {num_streams} streams")
-
-            # Step 3: Configure OPC UA alert in config.json
-            logger.info(f"Step 3: Configuring OPC UA alert in config.json for {num_streams} streams...")
+            logger.info(f"Configuring OPC UA alert in config.json for {num_streams} streams...")
             config_result = docker_utils.update_config_file("opcua")
-            assert_condition(config_result == True, f"Failed to configure OPC UA alert in config.json for {num_streams} streams")
+            assert_condition(config_result == True, f"Failed to configure OPC UA Core trigger for {num_streams} streams")
 
             # Verify containers are running
             containers = docker_utils.get_the_deployed_containers()

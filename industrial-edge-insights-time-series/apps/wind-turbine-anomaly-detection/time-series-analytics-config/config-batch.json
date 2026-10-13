@@ -1,5 +1,5 @@
 {
-    "udfs": {
+    "plugin": {
         "name": "windturbine_anomaly_detector_batch",
         "models": "windturbine_anomaly_detector_batch.pkl",
         "device": "CPU"

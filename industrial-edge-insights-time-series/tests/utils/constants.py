@@ -77,9 +77,7 @@ TELEGRAF_MQTT_PLUGIN = "mqtt_consumer"
 TELEGRAF_OPCUA_PLUGIN = "opcua"
 OPCUA_SERVER_URL = f"opc.tcp://localhost:{CONTAINERS['opcua_server']['port']}"  # Update if needed
 ALERT_NODE_ID = "ns=2;s=Alert"  # Replace with the actual node ID used for alerts
-UDF_DIR = "../../apps/wind-turbine-anomaly-detection/time-series-analytics-config/udfs/"
 MODEL_DIR = "../../apps/wind-turbine-anomaly-detection/time-series-analytics-config/models/"
-TICK_DIR = "../../apps/wind-turbine-anomaly-detection/time-series-analytics-config/tick_scripts/"
 # Fix PYTEST_DIR to use absolute path
 import os
 PYTEST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../functional'))
@@ -97,8 +95,6 @@ WIND_MODEL= "windturbine_anomaly_detector.pkl"
 MULTIMODAL_UDF = "weld_anomaly_detector"
 MULTIMODAL_MODEL = "weld_anomaly_detector.pkl"
 TARGET_SUBPATH = "edge-ai-suites/manufacturing-ai-suite/industrial-edge-insights-time-series"
-
-WINDTURBINE_TICK_SCRIPT_PATH = "apps/wind-turbine-anomaly-detection/time-series-analytics-config/tick_scripts/windturbine_anomaly_detector.tick"
 
 # Configuration directory paths
 WINDTURBINE_CONFIG_DIR = "apps/wind-turbine-anomaly-detection/time-series-analytics-config"
@@ -162,14 +158,11 @@ SAMPLE_APPS_CONFIG = {
         "ingested_topic": "wind-turbine-data",
         "analytics_topic": "wind-turbine-anomaly-data",
         "alert_topic": "alerts/wind_turbine",
-        "udf": "windturbine_anomaly_detector",
+        "plugin": "windturbine_anomaly_detector",
         "model": "windturbine_anomaly_detector.pkl",
-        "udf_deployment_package": "windturbine_anomaly_udf",
         "config_dir": "apps/wind-turbine-anomaly-detection/time-series-analytics-config",
-        "udfs_dir": "apps/wind-turbine-anomaly-detection/time-series-analytics-config/udfs/",
+        "plugin_dir": "apps/wind-turbine-anomaly-detection/time-series-analytics-config/plugin/",
         "models_dir": "apps/wind-turbine-anomaly-detection/time-series-analytics-config/models/",
-        "tick_scripts_dir": "apps/wind-turbine-anomaly-detection/time-series-analytics-config/tick_scripts/",
-        "tick_script_path": "apps/wind-turbine-anomaly-detection/time-series-analytics-config/tick_scripts/windturbine_anomaly_detector.tick",
         "alert_config": {
             "enabled": True,
             "threshold": 0.8,

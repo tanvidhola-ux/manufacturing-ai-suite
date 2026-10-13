@@ -1210,84 +1210,6 @@ def get_current_loglevel(file_path=None):
         logger.error(f"Failed to read LOG_LEVEL from .env file: {str(e)}")
         return None
 
-def remove_old_alert_in_tick_script(file_path, setup):
-    """Remove specific alert configuration and add a new one in the .tick file."""
-    # Define the alert pattern to remove
-    remove_alert_mqtt = re.compile(
-        r'\|alert\(\)\s*\.crit\(lambda: "anomaly_status" > 0\)\s*'
-        r'\.message\(.*?\)\s*\.noRecoveries\(\)\s*\.mqtt\(.*?\)\s*'
-        r'\.topic\(.*?\)\s*\.qos\(1\)', re.DOTALL
-    )
-    remove_alert_opcua = re.compile(
-        r'\|alert\(\)\s*\.crit\(lambda: "anomaly_status" > 0\)\s*'
-        r'\.message\(.*?wind_speed.*?grid_active_power.*?anomaly_status.*?\)\s*'
-        r'\.noRecoveries\(\)\s*\.post\(.*?opcua_alerts.*?\)\s*\.timeout\(30s\)',
-        re.DOTALL
-    )
-    # Define the new alert script to add
-    alert_mqtt_script = """
-    |alert()
-        .crit(lambda: "anomaly_status" > 0)
-        .message('Anomaly detected for wind speed: {{ index .Fields "wind_speed" }} Grid Active Power: {{ index .Fields "grid_active_power" }} Anomaly Status: {{ index .Fields "anomaly_status" }} ')
-        .noRecoveries()
-        .mqtt('my_mqtt_broker')
-        .topic('alerts/wind_turbine')
-        .qos(1)
-"""
-    alert_opcua_script = """
-    |alert()
-        .crit(lambda: "anomaly_status" > 0)
-        .message('Anomaly detected for wind speed: {{ index .Fields "wind_speed" }} Grid Active Power: {{ index .Fields "grid_active_power" }} Anomaly Status: {{ index .Fields "anomaly_status" }} ')
-        .noRecoveries()
-        .post('http://localhost:5000/opcua_alerts')
-        .timeout(30s)
-"""
-
-    try:
-        # Read the existing content of the .tick file
-        with open(file_path, 'r') as file:
-            content = file.read()
-
-        # Remove the specific alert section
-
-        content = remove_alert_mqtt.sub('', content)
-        logger.info("Removed MQTT alert pattern from the .tick file.")
-        content = remove_alert_opcua.sub('', content)
-        logger.info("Removed OPCUA alert pattern from the .tick file.")
-
-        # Append the new alert script
-        if setup == "mqtt":
-            content += alert_mqtt_script
-            logger.info("Added new MQTT alert script to the .tick file.")
-        elif setup == "opcua":
-            content += alert_opcua_script
-            logger.info("Added new OPCUA alert script to the .tick file.")
-        else:
-            logger.error("Invalid setup type. Use 'mqtt' or 'opcua'.")
-            return False
-
-        # Write the updated content back to the .tick file
-        with open(file_path, 'w') as file:
-            file.write(content)
-
-        logger.info("Alert configuration updated successfully.")
-        return True
-
-    except FileNotFoundError:
-        logger.error(f"File not found: {file_path}")
-        return False
-    except Exception as e:
-        logger.error(f"An error occurred: {e}")
-        return False
-
-def check_and_update_tick_script(script_path=None, setup=None):
-    """Compatibility shim; Core alert mode is applied through the /config API."""
-    if setup not in (None, "mqtt", "opcua"):
-        logger.error("Invalid alert mode: %s", setup)
-        return None
-    return "InfluxDB 3 trigger configuration is managed by the TS API"
-
-
 def check_logs_for_pattern(container_name, pattern_type, timeout=300, interval=10, custom_pattern=None,
                           failure_patterns=None, case_sensitive=True):
     """Check container logs for a pattern while failing fast on known error signatures."""
@@ -1425,13 +1347,13 @@ def check_logs_for_alerts(container_name, input, timeout=300, interval=10):
     return check_logs_for_pattern(container_name, input, timeout, interval)
 
 
-def upload_udf_tar_package(sample_app=constants.WIND_SAMPLE_APP):
-    """Build and upload the UDF deployment tar package via the Docker ts-api endpoint.
+def upload_plugin_package(sample_app=constants.WIND_SAMPLE_APP):
+    """Build and upload the Core plugin package via the Docker TS API endpoint.
 
     Implements the documented workflow:
       cd apps/<sample_app>/time-series-analytics-config
-      tar cf <sample_app>.tar models/ tick_scripts/ udfs/
-      curl -X POST https://localhost:3000/ts-api/udfs/package -F "file=@<sample_app>.tar" -k
+    tar cf <sample_app>.tar models/ plugin/
+    curl -X POST https://localhost:3000/ts-api/plugin/package -F "file=@<sample_app>.tar" -k
 
     Args:
         sample_app (str): Sample app name (e.g. constants.WIND_SAMPLE_APP).
@@ -1442,11 +1364,11 @@ def upload_udf_tar_package(sample_app=constants.WIND_SAMPLE_APP):
     import tarfile as _tarfile
     import tempfile as _tempfile
 
-    upload_endpoint = "https://localhost:3000/ts-api/udfs/package"
+    upload_endpoint = "https://localhost:3000/ts-api/plugin/package"
 
     success, original_dir = check_and_set_working_directory(return_original=True)
     if not success:
-        logger.error("Failed to set correct working directory for UDF tar upload.")
+        logger.error("Failed to set correct working directory for plugin tar upload.")
         return False
 
     tar_path = None
@@ -1463,11 +1385,11 @@ def upload_udf_tar_package(sample_app=constants.WIND_SAMPLE_APP):
             return False
 
         if sample_app == constants.WIND_SAMPLE_APP:
-            package_plugin = config_path / "udfs" / "influx3_windturbine" / "__init__.py"
+            package_plugin = config_path / "plugin" / "__init__.py"
             if not package_plugin.is_file():
-                logger.error("Core UDF entry point not found: %s", package_plugin)
+                logger.error("Core plugin entry point not found: %s", package_plugin)
                 return False
-            package_paths = [config_path / "udfs" / "influx3_windturbine"]
+            package_paths = [config_path / "plugin"]
         else:
             package_paths = [config_path / "udfs", config_path / "tick_scripts"]
             for source in package_paths:
@@ -1613,7 +1535,7 @@ def update_config_file(ingestion_type="opcua"):
                 "-H", "accept: application/json",
                 "-H", "Content-Type: application/json",
                 "-d", json.dumps({
-                    "udfs": {
+                    "plugin": {
                         "name": "windturbine_anomaly_detector",
                         "models": "windturbine_anomaly_detector.pkl"
                     },
@@ -1633,7 +1555,7 @@ def update_config_file(ingestion_type="opcua"):
                 "-H", "accept: application/json",
                 "-H", "Content-Type: application/json",
                 "-d", json.dumps({
-                    "udfs": {
+                    "plugin": {
                         "name": "windturbine_anomaly_detector",
                         "models": "windturbine_anomaly_detector.pkl"
                     },
@@ -1713,17 +1635,17 @@ def execute_gpu_config_curl(device="gpu", sample_app=constants.WIND_SAMPLE_APP):
             logger.error(f"Unknown sample_app '{sample_app}'. Available apps: {list(constants.SAMPLE_APPS_CONFIG.keys())}")
             return False
 
-        udf_name = app_config.get("udf")
+        plugin_name = app_config.get("plugin")
         model_name = app_config.get("model")
-        if not udf_name or not model_name:
+        if not plugin_name or not model_name:
             logger.error(
-                f"Invalid app configuration for '{sample_app}'. Missing required keys 'udf' or 'model'."
+                f"Invalid app configuration for '{sample_app}'. Missing required keys 'plugin' or 'model'."
             )
             return False
 
         gpu_config = {
-            "udfs": {
-                "name": udf_name,
+            "plugin": {
+                "name": plugin_name,
                 "models": model_name,
                 "device": device
             },
@@ -1781,28 +1703,25 @@ def _core_trigger_alert_mode_matches(alert_mode):
             return bool(alerts.get("mqtt")) and not bool(alerts.get("opcua"))
         return bool(alerts.get("opcua")) and not bool(alerts.get("mqtt"))
     except Exception as exc:
-        logger.warning("[reset_loaded_udf_to] TS API config lookup failed: %s", exc)
+        logger.warning("[reset_loaded_plugin_to] TS API config lookup failed: %s", exc)
         return False
 
 
-def reset_loaded_udf_to(alert_mode, sample_app=constants.WIND_SAMPLE_APP):
-    """Idempotently ensure TSAM's loaded UDF package and config match alert_mode (mqtt/opcua), rewriting TICK and re-uploading only if needed."""
+def reset_loaded_plugin_to(alert_mode, sample_app=constants.WIND_SAMPLE_APP):
+    """Ensure the loaded Core plugin config matches the requested alert mode."""
     if alert_mode not in ("mqtt", "opcua"):
-        logger.error(f"[reset_loaded_udf_to] Invalid alert_mode '{alert_mode}'")
+        logger.error(f"[reset_loaded_plugin_to] Invalid alert_mode '{alert_mode}'")
         return False
 
     if _core_trigger_alert_mode_matches(alert_mode):
-        logger.info(f"[reset_loaded_udf_to] Core trigger already in '{alert_mode}' mode; skipping re-upload")
+        logger.info(f"[reset_loaded_plugin_to] Core trigger already in '{alert_mode}' mode")
         return True
 
-    logger.info(f"[reset_loaded_udf_to] Applying '{alert_mode}' through Core trigger configuration")
-    if check_and_update_tick_script(setup=alert_mode) is None:
-        logger.error(f"[reset_loaded_udf_to] Invalid Core alert mode '{alert_mode}'")
-        return False
+    logger.info(f"[reset_loaded_plugin_to] Applying '{alert_mode}' through Core trigger configuration")
     if not update_config_file(alert_mode):
-        logger.error(f"[reset_loaded_udf_to] Failed to POST '{alert_mode}' config")
+        logger.error(f"[reset_loaded_plugin_to] Failed to POST '{alert_mode}' config")
         return False
-    logger.info(f"[reset_loaded_udf_to] Reset to '{alert_mode}' completed")
+    logger.info(f"[reset_loaded_plugin_to] Reset to '{alert_mode}' completed")
     return True
 
 def validate_mqtt_alert_system(sample_app=constants.WIND_SAMPLE_APP):
@@ -1846,27 +1765,17 @@ def validate_opcua_alert_system():
     logger.info("=== Docker-based OPC UA Alert System Validation ===")
     logger.info(f"Starting validation from directory: {os.getcwd()}")
 
-    # Alert mode is carried in Core trigger arguments posted through /config.
-    logger.info("\nStep 1: Preparing Core trigger alert configuration...")
-    tick_result = check_and_update_tick_script(setup="opcua")
-    if tick_result is None:
-        logger.error("✗ Step 1 FAILED: Invalid Core alert mode")
-        return False
-    logger.info("✓ Step 1 PASSED: Core alert mode accepted")
-
-    # Step 2: Upload the UDF deployment package (must happen before config POST)
-    logger.info("\nStep 2: Uploading UDF deployment package...")
-    upload_result = upload_udf_tar_package(constants.WIND_SAMPLE_APP)
+    logger.info("\nStep 1: Uploading Core plugin package...")
+    upload_result = upload_plugin_package(constants.WIND_SAMPLE_APP)
     if not upload_result:
-        logger.error("✗ Step 2 FAILED: UDF deployment package upload failed")
+        logger.error("✗ Step 1 FAILED: Core plugin package upload failed")
         return False
-    logger.info("✓ Step 2 PASSED: UDF deployment package uploaded successfully")
+    logger.info("✓ Step 1 PASSED: Core plugin package uploaded successfully")
 
-    # Step 3: Post the OPC UA config to TSAM (triggers TSAM restart)
-    logger.info("\nStep 3: Configuring OPC UA alert in config.json...")
+    logger.info("\nStep 2: Configuring OPC UA alert through Core trigger config...")
     update_config_setup = update_config_file("opcua")
     if not update_config_setup:
-        logger.error("✗ Step 3 FAILED: OPC UA alerts configuration setup failed")
+        logger.error("✗ Step 2 FAILED: OPC UA alerts configuration setup failed")
         return False
 
     # Step 4: Restart OPC UA server container
@@ -2742,66 +2651,6 @@ def check_resource_leak(initial_stats, final_stats, memory_leak_threshold_mb=50)
 
     return not leak_detected
 
-
-def setup_mqtt_alerts_docker(sample_app=constants.WIND_SAMPLE_APP):
-    """
-    Setup MQTT alerts for Docker deployment with app-specific support.
-
-    Args:
-        sample_app (str): Sample app type (constants.WIND_SAMPLE_APP, constants.MULTIMODAL_SAMPLE_APP).
-
-    Returns:
-        bool: True if setup successful, False otherwise
-    """
-    try:
-        logger.info(f"Setting up MQTT alerts for Docker deployment with app: {sample_app}")
-
-        # Save current directory
-        original_dir = os.getcwd()
-
-        # Navigate to the correct app directory based on sample app
-        if sample_app == constants.WIND_SAMPLE_APP:
-            target_dir = os.path.join(constants.EDGE_AI_SUITES_DIR,
-                                    "apps/wind-turbine-anomaly-detection/time-series-analytics-config")
-            file_path = os.path.join(target_dir, "tick_scripts/windturbine_anomaly_detector.tick")
-            setup_type = "mqtt"
-        elif sample_app == constants.MULTIMODAL_SAMPLE_APP:
-            # For multimodal, the config is in a different location
-            multimodal_dir = constants.EDGE_AI_SUITES_DIR.replace(constants.TARGET_SUBPATH, constants.MULTIMODAL_TARGET_SUBPATH)
-            target_dir = os.path.join(multimodal_dir, "configs/time-series-analytics-microservice")
-            file_path = os.path.join(target_dir, "tick_scripts/weld_defect_detector.tick")
-            setup_type = "mqtt_weld"
-        else:
-            logger.error(f"✗ Unsupported sample app: {sample_app}")
-            return False
-
-        logger.info(f"Target directory: {target_dir}")
-        logger.info(f"Tick script path: {file_path}")
-
-        # Check if tick script file exists
-        if not os.path.exists(file_path):
-            logger.error(f"✗ Tick script file not found: {file_path}")
-            return False
-
-        # Update the tick script with appropriate MQTT alert configuration
-        success = common_utils.update_alert_in_tick_script(file_path, setup_type)
-
-        if success:
-            logger.info(f"✓ {setup_type.upper()} alert configuration set successfully for {sample_app}")
-            return True
-        else:
-            logger.error(f"✗ Failed to set {setup_type.upper()} alert configuration for {sample_app}")
-            return False
-
-    except Exception as e:
-        logger.error(f"✗ Exception occurred while setting up MQTT alerts: {str(e)}")
-        return False
-    finally:
-        # Always return to original directory
-        try:
-            os.chdir(original_dir)
-        except Exception:
-            pass
 
 def invoke_make_up(measure_time=False):
     """
@@ -4021,7 +3870,7 @@ def execute_multimodal_gpu_config_curl(config, device="gpu"):
 
         # Update device configuration
         gpu_config = copy.deepcopy(config)
-        gpu_config["udfs"]["device"] = device
+        gpu_config["plugin"]["device"] = device
 
         # Convert to JSON
         gpu_config_json = json.dumps(gpu_config)

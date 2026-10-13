@@ -193,7 +193,7 @@ fi
 endef
 
 define wait_for_core_trigger
-trigger_name=$$(jq -r '.udfs.name' "$(CURDIR)/apps/$(SAMPLE_APP)/time-series-analytics-config/$(CONFIG_JSON_FILE)"); \
+trigger_name=$$(jq -r '.plugin.name' "$(CURDIR)/apps/$(SAMPLE_APP)/time-series-analytics-config/$(CONFIG_JSON_FILE)"); \
 echo "Waiting for InfluxDB 3 Core trigger $$trigger_name..."; \
 token=$$(jq -r '.token' "$(INFLUXDB3_ADMIN_TOKEN_FILE)"); \
 retry=0; \
@@ -211,7 +211,7 @@ echo "Core trigger $$trigger_name is enabled."
 endef
 
 define upload_tar_file
-echo "Creating UDF deployment tar for $(SAMPLE_APP)..."; \
+echo "Creating plugin package tar for $(SAMPLE_APP)..."; \
 config_dir=$(CURDIR)/apps/$(SAMPLE_APP)/time-series-analytics-config; \
 tar_file=$(CURDIR)/apps/$(SAMPLE_APP)/time-series-analytics-config/$(SAMPLE_APP).tar; \
 if [ "$(CONFIG_JSON_FILE)" = "config-batch.json" ]; then \
@@ -234,14 +234,14 @@ if [ "$(CONFIG_JSON_FILE)" = "config-batch.json" ]; then \
 fi; \
 rm -f $$tar_file; \
 cd $$config_dir && \
-folders="udfs/influx3_windturbine"; \
+folders="plugin"; \
 if [ -d models ] && [ -n "$$(ls -A models 2>/dev/null)" ]; then folders="$$folders models"; fi; \
 tar --exclude='__pycache__' --exclude='*.pyc' -cf $$tar_file $$folders && \
 echo "Created: $$tar_file"; \
 $(wait_for_tsam); \
-echo "Uploading UDF deployment tar for $(SAMPLE_APP) to Time-Series Analytics microservice..."; \
+echo "Uploading plugin package tar for $(SAMPLE_APP) to Time-Series Analytics microservice..."; \
 response=$$(curl -s -o /tmp/upload_response.json -w "%{http_code}" \
-	-X POST https://${HOST_IP}:${GRAFANA_PORT}/ts-api/udfs/package \
+	-X POST https://${HOST_IP}:${GRAFANA_PORT}/ts-api/plugin/package \
 	-F "file=@$$tar_file" \
 	-k); \
 if [ "$$response" = "200" ]; then \
