@@ -44,6 +44,64 @@
         {% endif %}
       </div>
       {% endif %}
+      {% if detection_summary %}
+      <details class="result-section">
+        <summary>Deterministic Fusion API summary</summary>
+        {% if result.get("min_id") is not none or result.get("max_id") is not none %}
+        <p>Run window: IDs greater than {{ result.get("min_id", "-infinity") }} and up to {{ result.get("max_id", "infinity") }}.</p>
+        {% endif %}
+        <table>
+          <thead>
+            <tr><th>Class</th><th>Count</th><th>Avg Confidence</th><th>Min Confidence</th><th>Max Confidence</th><th>Fusion Mode</th></tr>
+          </thead>
+          <tbody>
+            {% for class_summary in detection_summary %}
+            <tr>
+              <td>{{ class_summary.label }}</td>
+              <td>{{ class_summary.count }}</td>
+              <td>{{ "%.3f"|format(class_summary.avg_confidence) }}</td>
+              <td>{{ "%.3f"|format(class_summary.min_confidence) }}</td>
+              <td>{{ "%.3f"|format(class_summary.max_confidence) }}</td>
+              <td>{{ class_summary.fusion_mode }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+      {% endif %}
+      {% if weld_input_trace %}
+      <details class="result-section">
+        <summary>Weld → AQH input</summary>
+        <pre class="llm-output">{{ weld_input_trace | tojson(indent=2) }}</pre>
+      </details>
+      {% endif %}
+      {% if model_io_trace %}
+      <details class="result-section">
+        <summary>AQH → model calls ({{ model_io_trace|length }})</summary>
+        {% for call in model_io_trace %}
+        <details>
+          <summary>{{ call.agent }} · {{ call.model }}</summary>
+          <p>Parameters</p>
+          <pre class="llm-output">{{ call.get("parameters", {}) | tojson(indent=2) }}</pre>
+          {% if call.get("structured_output_schema") %}
+          <p>Structured output schema</p>
+          <pre class="llm-output">{{ call.structured_output_schema | tojson(indent=2) }}</pre>
+          {% endif %}
+          {% for message in call.messages %}
+          <p>{{ "System prompt" if message.role == "system" else "User prompt" }}</p>
+          <pre class="llm-output">{{ message.content }}</pre>
+          {% endfor %}
+          {% if call.get("response") is not none %}
+          <p>Model response</p>
+          <pre class="llm-output">{{ call.response }}</pre>
+          {% endif %}
+          {% if call.get("error") %}
+          <p class="error">{{ call.error }}</p>
+          {% endif %}
+        </details>
+        {% endfor %}
+      </details>
+      {% endif %}
       {% if result.get("status") == "running" %}
         {% if phase == "detecting" %}
         <p class="info">&#9203; Running DL Streamer inference over the video… page auto-refreshes every 3 seconds.</p>

@@ -24,6 +24,7 @@ services:
       LLM_BASE_URL: http://apm-llm:8000/v3
       LLM_MODEL_NAME: ${LLM_MODEL_NAME}
       LLM_MODE: ${LLM_MODE:-llm}
+      AQH_LLM_TRACE_ENABLED: ${AQH_LLM_TRACE_ENABLED:-true}
       AGENT_MODE: ${AGENT_MODE:-sequential}
       LLM_API_KEY: ${LLM_API_KEY:-UNUSED}
       # MQTT — subscribes only to the detection layer's "batch-complete"
