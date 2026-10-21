@@ -304,6 +304,9 @@ def fetch_docker_credentials(credential_type):
                 username = line.split('=', 1)[1]
             elif line.startswith(password_key):
                 password = line.split('=', 1)[1]
+
+        username = os.environ.get(username_key[:-1], username)
+        password = os.environ.get(password_key[:-1], password)
         
         # Note: Not logging credentials for security reasons  
         logger.info(f"Successfully retrieved {credential_type.upper()} credentials from .env file")
@@ -416,6 +419,9 @@ def read_env_file(env_file_path: str):
                     if '=' in line:
                         key, value = line.split('=', 1)
                         env_vars[key.strip()] = value.strip()
+        for key in env_vars:
+            if key in os.environ:
+                env_vars[key] = os.environ[key]
     except FileNotFoundError:
         logger.warning(f".env file not found at {env_file_path}")
     

@@ -25,6 +25,7 @@ import paho.mqtt.client as mqtt
 sys.path.append(os.path.dirname(__file__))
 # Configure logger
 logger = logging.getLogger(__name__)
+_TEST_ENV_OVERRIDES: dict[str, str] = {}
 
 # Literal sklearnex success line: substring checks for 'gpu' can false-positive on config echoes/errors.
 SKLEARNEX_SUCCESS_TEMPLATE = "running accelerated version on {device}"
@@ -792,7 +793,7 @@ def invoke_make_check_env_variables():
 
 
 def update_env_file(file_path=None, values=None):
-    """Update existing .env file with specific environment variable values using sed."""
+    """Apply test settings to child processes without persisting credentials."""
 
     # Set default file path if not provided
     if file_path is None:
@@ -822,33 +823,13 @@ def update_env_file(file_path=None, values=None):
             return False
 
         for parameter_name, value in values.items():
-            # Check whether the key already exists in the file
-            grep_result = common_utils.exec_command(
-                ["grep", "-q", f"^{parameter_name}=", expanded_path],
-                capture_output=True
-            )
-            if grep_result.returncode == 0:
-                # Key exists — update it with sed
-                sed_result = common_utils.exec_command(
-                    [
-                        "sed", "-i",
-                        # Docker Compose requires test credentials in plaintext in its env file.
-                        # lgtm [py/clear-text-storage-sensitive-data]
-                        f"s|^{parameter_name}=.*|{parameter_name}={value}|g",
-                        expanded_path,
-                    ],
-                    capture_output=True, text=True
-                )
-                if sed_result.returncode != 0:
-                    logger.error(f"sed failed: {sed_result.stderr}")
-                    return False
-            else:
-                with open(expanded_path, "a", encoding="utf-8") as env_file:
-                    # Docker Compose requires test credentials in plaintext in its env file.
-                    # lgtm [py/clear-text-storage-sensitive-data]
-                    env_file.write(f"{parameter_name}={value}\n")
+            if not isinstance(parameter_name, str) or not isinstance(value, str):
+                logger.error("Environment variable names and values must be strings")
+                return False
+            os.environ[parameter_name] = value
+            _TEST_ENV_OVERRIDES[parameter_name] = value
 
-        logger.debug(f"Successfully updated .env file with {len(values)} environment variables")
+        logger.debug("Applied %d test environment variables without writing them to disk", len(values))
         return True
 
     except Exception as e:
@@ -2032,6 +2013,9 @@ def get_influxdb_credentials():
             elif line.startswith('INFLUXDB_PASSWORD='):
                 influxdb_password = line.split('=', 1)[1]
 
+        influxdb_username = os.environ.get("INFLUXDB_USERNAME", influxdb_username)
+        influxdb_password = os.environ.get("INFLUXDB_PASSWORD", influxdb_password)
+
         # Note: Not logging credentials for security reasons
         logger.info("Successfully retrieved InfluxDB credentials from .env file")
 
@@ -2495,6 +2479,11 @@ def read_env_file(file_path=None):
             if '=' in line:
                 key, value = line.split('=', 1)
                 env_vars[key] = value
+
+        env_vars.update(_TEST_ENV_OVERRIDES)
+        for key in env_vars:
+            if key in os.environ:
+                env_vars[key] = os.environ[key]
 
         logger.info(f"Read {len(env_vars)} environment variables from {file_path}")
         return env_vars
