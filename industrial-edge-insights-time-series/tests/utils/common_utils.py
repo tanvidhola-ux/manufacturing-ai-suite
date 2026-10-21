@@ -46,6 +46,9 @@ def exec_command(
         text: bool = True,
         **kwargs) -> subprocess.CompletedProcess:
     """Execute a command safely without shell invocation."""
+    command = list(command)
+    if command and os.path.basename(str(command[0])) == "make" and "-e" not in command[1:]:
+        command.insert(1, "-e")
     return subprocess.run(
         command,
         shell=False,
@@ -980,6 +983,7 @@ def update_host_ip_in_env(env_file_path=None, target_ip=None):
         if host_ip_updated:
             with open(env_file_path, 'w') as f:
                 f.writelines(updated_lines)
+            os.environ["HOST_IP"] = target_ip
             logger.info(f"Successfully updated HOST_IP in {env_file_path}")
             return True
         else:
