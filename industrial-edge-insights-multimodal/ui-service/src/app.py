@@ -279,6 +279,7 @@ async def _fetch_summary_and_runs(client: httpx.AsyncClient):
 
 async def _fetch_run_view(client: httpx.AsyncClient, run_id: str) -> dict:
     """Return the merged ``{"phase", "result"}`` view of one run for the results page."""
+    detection_summary: list[dict] = []
     try:
         results_r = await client.get(f"{_AGENT_URL}/agents/status/{run_id}")
         result = results_r.json() if results_r.status_code == 200 else {}
@@ -287,11 +288,57 @@ async def _fetch_run_view(client: httpx.AsyncClient, run_id: str) -> dict:
         if phase in {"completed", "error"}:
             results_r = await client.get(f"{_AGENT_URL}/agents/results/{run_id}")
             result = results_r.json() if results_r.status_code == 200 else {"error": "Result unavailable"}
+            bounds = {
+                name: result[name]
+                for name in ("min_id", "max_id")
+                if result.get(name) is not None
+            }
+            try:
+                summary_r = await client.get(
+                    f"{_STORAGE_URL}/detections/summary", params=bounds
+                )
+                if summary_r.status_code == 200:
+                    api_summary = summary_r.json()
+                    if isinstance(api_summary, dict):
+                        by_class = api_summary.get("by_class")
+                        detection_summary = (
+                            by_class
+                            if isinstance(by_class, list)
+                            else list(api_summary.values())
+                        )
+            except Exception as exc:
+                log.warning(
+                    "Failed to fetch deterministic detection summary for run %s: %s",
+                    run_id,
+                    exc,
+                )
     except Exception as exc:
         result = {"error": str(exc)}
         phase = "error"
-    log.info(f"Fetched run view for run_id={run_id}: phase={phase}, result={result}")
-    return {"phase": phase, "result": result}
+    log.info(
+        "Fetched run view for run_id=%s: phase=%s result_keys=%s",
+        run_id,
+        phase,
+        sorted(result),
+    )
+    batch_metadata = result.get("batch_metadata", {})
+    source_payload = batch_metadata.get("source_payload")
+    weld_input_trace = None
+    if source_payload:
+        weld_input_trace = {
+            "source": result.get("source"),
+            "run_id": result.get("run_id", run_id),
+            "min_id": result.get("min_id"),
+            "max_id": result.get("max_id"),
+            "payload": source_payload,
+        }
+    return {
+        "phase": phase,
+        "result": result,
+        "detection_summary": detection_summary,
+        "weld_input_trace": weld_input_trace,
+        "model_io_trace": result.get("model_io_trace", []),
+    }
 
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
@@ -417,6 +464,9 @@ async def results_page(request: Request, run_id: str):
         context={
             "use_case_id": _USE_CASE_ID, "run_id": run_id,
             "result": view["result"], "phase": view["phase"],
+            "detection_summary": view.get("detection_summary", []),
+            "weld_input_trace": view.get("weld_input_trace"),
+            "model_io_trace": view.get("model_io_trace", []),
         },
     )
 

@@ -29,31 +29,35 @@ Evaluate the supplied Detection summary against the Threshold rules and write ex
 
 CONSTRAINT: Do NOT write any output until Step 6. Steps 1–5 are silent computation only.
 
-Step 1 — Extract confidence values
-From the Detection summary JSON, record the avg_confidence for every class. Discard Good Weld, No Weld, No Label.
+NORMALIZATION (applies to every step below): Before matching any class name between the Detection summary and the Threshold rules, normalize both sides per the SYSTEM "Normalize labels" rules, then compare case-insensitively and ignoring leading/trailing whitespace. Two names that are equal after normalization MUST be treated as the same class — do not report "No Policy Violation" solely because of a casing, underscore, or whitespace mismatch.
+
+Step 1 — Extract confidence values and remove non-actionable classes
+From the Detection summary JSON, record the avg_confidence for every class (after normalization).
+HARD DISCARD: Good Weld, No Weld, and No Label (in any raw spelling — "No_Weld", "no weld", "NO WELD", etc. all normalize to the same class) MUST be deleted from this list immediately and permanently. They are NEVER eligible for CRITICAL, HIGH, MEDIUM, or LOW under any condition, even if a Threshold tier's class list happens to name them by mistake. Do not carry them into Step 2 under their raw, un-normalized spelling as if they were a distinct, un-recognized class — a class name is still "No Weld" whether it is spelled "No Weld" or "No_Weld".
+The remaining classes (after this discard) are the ONLY classes allowed to appear anywhere in your Step 2–6 reasoning or final output.
 
 Step 2 — Find eligible CRITICAL classes
 From the Threshold rules, read the CRITICAL class list and the CRITICAL min_required.
-ELIGIBLE_CRITICAL = [ class for class in CRITICAL_class_list if class is in Detection summary AND its avg_confidence >= CRITICAL min_required ]
-Do NOT add any class that is not in the CRITICAL class list, even if its avg_confidence is high.
+ELIGIBLE_CRITICAL = [ class for class in CRITICAL_class_list if class (after normalization) is in the Step 1 remaining list AND its avg_confidence >= CRITICAL min_required ]
+Do NOT add any class that is not in the CRITICAL class list, even if its avg_confidence is high. Do NOT add any class discarded in Step 1.
 
 Step 3 — Find eligible HIGH classes (skip if ELIGIBLE_CRITICAL is not empty)
 If ELIGIBLE_CRITICAL is not empty, skip this step entirely.
 From the Threshold rules, read the HIGH class list and the HIGH min_required.
-ELIGIBLE_HIGH = [ class for class in HIGH_class_list if class is in Detection summary AND its avg_confidence >= HIGH min_required ]
-Do NOT add any class that is not in the HIGH class list.
+ELIGIBLE_HIGH = [ class for class in HIGH_class_list if class (after normalization) is in the Step 1 remaining list AND its avg_confidence >= HIGH min_required ]
+Do NOT add any class that is not in the HIGH class list. Do NOT add any class discarded in Step 1.
 
 Step 4 — Find eligible MEDIUM classes (skip if ELIGIBLE_CRITICAL or ELIGIBLE_HIGH is not empty)
 If ELIGIBLE_CRITICAL or ELIGIBLE_HIGH is not empty, skip this step entirely.
 From the Threshold rules, read the MEDIUM class list and the MEDIUM min_required.
-ELIGIBLE_MEDIUM = [ class for class in MEDIUM_class_list if class is in Detection summary AND its avg_confidence >= MEDIUM min_required ]
-Do NOT add any class that is not in the MEDIUM class list.
+ELIGIBLE_MEDIUM = [ class for class in MEDIUM_class_list if class (after normalization) is in the Step 1 remaining list AND its avg_confidence >= MEDIUM min_required ]
+Do NOT add any class that is not in the MEDIUM class list. Do NOT add any class discarded in Step 1.
 
 Step 5 — Find eligible LOW classes (skip if any earlier eligible set is not empty)
 If any of ELIGIBLE_CRITICAL, ELIGIBLE_HIGH, ELIGIBLE_MEDIUM is not empty, skip this step entirely.
 From the Threshold rules, read the LOW class list and the LOW min_required.
-ELIGIBLE_LOW = [ class for class in LOW_class_list if class is in Detection summary AND its avg_confidence >= LOW min_required ]
-Do NOT add any class that is not in the LOW class list.
+ELIGIBLE_LOW = [ class for class in LOW_class_list if class (after normalization) is in the Step 1 remaining list AND its avg_confidence >= LOW min_required ]
+Do NOT add any class that is not in the LOW class list. Do NOT add any class discarded in Step 1.
 
 Step 6 — Write output (this is the only place you write anything)
 Determine selected_tier and selected_list:
@@ -62,6 +66,8 @@ Determine selected_tier and selected_list:
   Else if ELIGIBLE_MEDIUM is not empty → selected_tier=MEDIUM, selected_list=ELIGIBLE_MEDIUM sorted by avg_confidence descending.
   Else if ELIGIBLE_LOW is not empty → selected_tier=LOW, selected_list=ELIGIBLE_LOW sorted by avg_confidence descending.
   Else → write Pattern B and stop.
+
+FINAL SELF-CHECK (perform silently before writing): Confirm selected_list contains no class discarded in Step 1 (Good Weld, No Weld, No Label in any spelling). If it does, remove it from selected_list and recompute selected_tier from the remaining steps — a non-actionable class must never appear as Primary Defect. Confirm each class in selected_list has its own single avg_confidence value listed once; never repeat one class's confidence value for a different class, and never list more confidence values than there are classes in Primary Defect.
 
 If selected_list is set, write Pattern A.
 Pattern A and Pattern B are fixed templates — copy them exactly, replacing only the angle-bracket placeholders.
@@ -100,21 +106,24 @@ You are a precise quality assurance reporting agent. Your task is to analyze the
 RULES
 
 1. DATA GROUNDING: Use ONLY the provided values in "Threshold rules", "Detection summary", and "Policy output" below. Do not invent any names, numbers, or confidence values.
-2. STRICT EXCLUSIONS: "Good Weld", "No Weld", and "No Label" must not appear anywhere in your response (including the Summary, Findings table, or Policy Alignment).
+2. STRICT EXCLUSIONS: "Good Weld", "No Weld", and "No Label" (in any spelling, e.g. "No_Weld") must not appear anywhere in your response (including the Summary, Findings table, or Policy Alignment).
 3. NO RAW DATA: Do not reproduce or dump raw JSON structures or raw lists in your response.
+4. NO RECOMPUTATION: Policy output is the source of truth for severity. Copy the defect name, Priority tier, and Reported Confidence from the Policy output's "Primary Defect", "Priority", and "Reported Confidence" lines EXACTLY, character for character. Never re-derive, upgrade, downgrade, or reassign the priority tier from general domain knowledge, the priority hierarchy text, or your own judgment of defect severity — the hierarchy is used only to explain why the Policy output's own tier beat lower tiers, not to recompute it.
+5. EXACT NUMBERS: Count, Avg Confidence, Max Confidence, and Min Confidence in the Findings table must be copied verbatim (full precision, no rounding or substitution) from the Detection summary/Detection statistics JSON. These are three DIFFERENT fields with normally three DIFFERENT numeric values — never copy the Avg Confidence value into the Max or Min Confidence column, and never substitute a threshold/min_required/policy value for an actual detection confidence value.
+6. NO FABRICATED CLASSES: The ONLY valid defect class names are those that literally appear, verbatim (after normalization), in the "Detection summary"/"Detection statistics" JSON supplied below. You must NEVER write the name of any defect class — in the Summary, Findings table, or Policy Alignment — that does not literally appear in that JSON, even if it is one of the canonical defect classes, even if the Policy output's Primary Defect field names a class not present there, and even if you believe a different class is more severe. If the Policy output's Primary Defect is not present in the Detection summary/Detection statistics JSON, still copy the Policy output's Primary Defect/Priority/Reported Confidence lines verbatim per Rule 4 (do not replace them with a class of your own choosing) — you are reflecting Policy output, not re-diagnosing the weld.
 
 REPORT GENERATION INSTRUCTIONS
 
 Please structure your report exactly as follows:
 
 Summary
-Write a 2-to-3 sentence summary detailing the primary defect(s) specified in the "policy" text of the "Policy output". State the defect name, its priority tier, and its reported confidence. Explain briefly why it was selected as the primary defect based on the priority hierarchy (CRITICAL > HIGH > MEDIUM > LOW).
+Write a 2-to-3 sentence summary detailing the primary defect(s) specified in the "policy" text of the "Policy output". State the defect name, its priority tier, and its reported confidence EXACTLY as given in the Policy output (per Rule 4 — do not recompute or reinterpret them). Explain briefly why that tier beat the lower tiers based on the priority hierarchy (CRITICAL > HIGH > MEDIUM > LOW); do not use the hierarchy to change the tier itself.
 If Policy Decision is "No Action Required", write exactly: "No actionable defects were identified. No corrective action is needed."
 
 Findings
 Construct a markdown table. It must contain exactly one row for every valid defect class present in the "summary" block of the "Policy output" (or from the "Detection statistics" if policy summary is empty).
-- Do not skip any valid defect class (except the excluded classes: "Good Weld", "No Weld", "No Label").
-- For each row, map the columns exactly as follows:
+- Do not skip any valid defect class (except the excluded classes: "Good Weld", "No Weld", "No Label"). Do not add any class that is not present in that JSON (see Rule 6) — the table rows must be an exact subset of the classes literally present in the data, never a superset.
+- For each row, map the columns exactly as follows, reading each value from its own distinctly-named JSON field (count ≠ avg_confidence ≠ max_confidence ≠ min_confidence — these are four separate numbers, do not reuse one for another):
   - Class: <Name of the defect>
   - Count: <Count value from JSON>
   - Avg Confidence: <avg_confidence value from JSON>
@@ -147,7 +156,9 @@ Rules
   1) Summary Statistics
   2) Evidence Conclusion
 - Never generate both sets of sections. Choose exactly one path above.
-- Exclude non-actionable classes (Good Weld, No Weld, No Label) from all sections including Evidence Table, Summary Statistics, and Evidence Conclusion. Do not mention them anywhere in the output.
+- MANDATORY WORKLIST (perform silently before writing any output): (1) List every class name present in the supplied data with its count. (2) Normalize each name per the SYSTEM "Normalize labels" rules. (3) DELETE from the list any class whose normalized name is Good Weld, No Weld, or No Label — regardless of its raw spelling (e.g. "No_Weld", "no weld") — this deleted class must never be written, counted, or referenced again in any section, table row, total, or sentence. (4) DELETE any remaining class with a count of 0. (5) The classes still remaining after steps 3–4 are the complete and only set of "actionable classes" — this set, and nothing else, is what "Evidence Table"/"Summary Statistics" rows, "Total detections", and "Actionable defect classes detected" must be computed from.
+- "Total detections" MUST equal the sum of the Count values of the rows you actually list in the table — recompute this sum from the table rows before writing it, do not state a different number.
+- "Actionable defect classes detected" MUST equal the number of rows in the table.
 - Do not fabricate timestamps, frames, or modality agreement if they are unavailable.
 - `top_detections_per_class` and `summary` are separate fields. Presence of `summary` data alone does NOT satisfy the Path A condition. Use Path A ONLY when a field explicitly named `top_detections_per_class` exists and is non-empty in the input.
 - Write the Evidence Conclusion as the very last line. Do not append anything after it — no labels, no data, no JSON.
@@ -163,7 +174,7 @@ Evidence Summary
 Evidence Table
 | Class | Count | Avg Confidence | Max Confidence | Min Confidence |
 |-------|-------|----------------|----------------|----------------|
-<one row per actionable class>
+<one row per class remaining after the MANDATORY WORKLIST above — these are the only valid rows>
 
 Evidence Conclusion
 <2-3 sentences covering dominant actionable defect classes, confidence levels, and overall quality signal. Do not mention non-actionable classes.>
@@ -177,7 +188,7 @@ Summary Statistics
 - Retention frames: <value from evidence data>
 | Class | Count | Avg Confidence | Max Confidence | Min Confidence |
 |-------|-------|----------------|----------------|----------------|
-<one row per actionable class — omit Good Weld, No Weld, No Label>
+<one row per class remaining after the MANDATORY WORKLIST above — these are the only valid rows>
 
 Evidence Conclusion
 <2-3 sentences covering dominant actionable defect classes, confidence levels, and overall quality signal. Do not mention non-actionable classes.>
@@ -194,9 +205,11 @@ Rules
 - Your response must contain ONLY the ticket fields defined in the Output format below. Do not include any JSON, raw data, or input context in your response.
 - Policy output is the source of truth.
 - Do not recalculate priority, classification, decision, or confidence.
+- PRIMARY DEFECT NAME MUST MATCH POLICY: The defect named in Title, Description, and Recommended Action MUST be exactly the "Primary Defect" named in the Policy output — never a different class name you consider more severe, and never a class absent from the Policy/Analysis output, even if it is a well-known critical defect type.
 - If the policy identifies a non-actionable class, do not generate a ticket.
 - Use analysis output only to enrich description and recommended action.
-- Focus the ticket on the selected primary defect, but briefly mention the other actionable defects identified in the analysis output as supporting context only.
+- NEVER mention Good Weld, No Weld, or No Label anywhere in the ticket (Title, Description, or Recommended Action), including as supporting context — even if the analysis output incorrectly includes them. Treat any such mention in the analysis output as an error to be silently omitted, not reproduced.
+- Focus the ticket on the selected primary defect, but briefly mention the other actionable defects identified in the analysis output as supporting context only — only classes that literally appear in the analysis output's Findings table, never a class you introduce yourself.
 - Do not list the other defects as tags or as a comma-separated list. Mention them in a short descriptive sentence if needed.
 - Describe the defect in enough detail to explain the weld quality issue, its severity, and why it requires action.
 - Recommended Action must be more specific and operational than a generic phrase: include the control action, the inspection step, and any immediate process adjustment.
